@@ -60,6 +60,6 @@ for name, X_subset in models.items():
     accuracy = accuracy_score(y_test, y_pred)
     print(f"{name} Model Accuracy: {accuracy:.4f}")
 
-# Visualize feature importance
+
 feature_importances.sort_values().plot(kind='barh', title='Feature Importance using Random Forest')
 plt.show()
