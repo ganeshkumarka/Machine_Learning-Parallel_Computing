@@ -1,82 +1,85 @@
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression, SGDClassifier
+import pandas as pd
+import numpy as np
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, AdaBoostClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
-from sklearn.neural_network import MLPClassifier
-import os
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.datasets import load_iris
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+import warnings
 
-# Folder name
-folder_name = "clustering_algorithms"
-os.makedirs(folder_name, exist_ok=True)
+warnings.filterwarnings("ignore")
 
 # Load the Iris dataset
-data = load_iris()
-X, y = data.data, data.target
+iris = load_iris()
+X = pd.DataFrame(iris.data, columns=iris.feature_names)
+y = pd.Series(iris.target, name='target')
 
-# Split dataset
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Split the dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-# Exploratory Data Analysis
-iris_df = pd.DataFrame(X, columns=data.feature_names)
-iris_df['species'] = y
-sns.pairplot(iris_df, hue='species', palette='tab10')
-plt.show()
-
-# List of classifiers
+# List of classifiers to evaluate
 classifiers = {
-    "Logistic Regression": LogisticRegression(),
-    "Random Forest": RandomForestClassifier(),
-    "Support Vector Machine": SVC(),
-    "K-Nearest Neighbors": KNeighborsClassifier(),
+    "Logistic Regression": LogisticRegression(max_iter=1000),
     "Decision Tree": DecisionTreeClassifier(),
+    "SVM": SVC(probability=True),
+    "K-Nearest Neighbors": KNeighborsClassifier(),
     "Naive Bayes": GaussianNB(),
-    "LDA": LinearDiscriminantAnalysis(),
-    "MLP Classifier": MLPClassifier(),
-    "QDA": QuadraticDiscriminantAnalysis(),
-    "SGD": SGDClassifier(max_iter=1000, random_state=42)
+    "Random Forest": RandomForestClassifier(),
+    "Gradient Boosting": GradientBoostingClassifier()
 }
 
-# Evaluate classifiers
-results = {}
+# Evaluate classifiers and store results
+results = []
 for name, clf in classifiers.items():
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, average='weighted')
-    recall = recall_score(y_test, y_pred, average='weighted')
-    f1 = f1_score(y_test, y_pred, average='weighted')
-    results[name] = (accuracy, precision, recall, f1)
-    print(f"{name} - Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}")
+    precision = precision_score(y_test, y_pred, average='macro')
+    recall = recall_score(y_test, y_pred, average='macro')
+    f1 = f1_score(y_test, y_pred, average='macro')
+    results.append((name, accuracy, precision, recall, f1))
 
-# Select best 4 classifiers based on accuracy
-top_classifiers = sorted(results.items(), key=lambda x: x[1][0], reverse=True)[:4]
-best_models = [classifiers[name] for name, _ in top_classifiers]
+# Convert results to DataFrame for better visualization
+results_df = pd.DataFrame(results, columns=["Classifier", "Accuracy", "Precision", "Recall", "F1 Score"])
+print("Classifier Performance:")
+print(results_df)
 
-# Ensemble methods
-bagging = BaggingClassifier(estimator=best_models[0], n_estimators=10, random_state=42)
-boosting = AdaBoostClassifier(estimator=best_models[1], n_estimators=10, random_state=42)
-gb = GradientBoostingClassifier(n_estimators=10, random_state=42)
-stacking = StackingClassifier(estimators=[(name, clf) for name, clf in zip([t[0] for t in top_classifiers], best_models)], final_estimator=LogisticRegression())
+# Select the best 4 classifiers based on F1 Score
+best_classifiers = results_df.nlargest(4, 'F1 Score')['Classifier'].values
+print("\nBest 4 Classifiers based on F1 Score:")
+print(best_classifiers)
 
-ensembles = {
-    "Bagging": bagging,
-    "Boosting": boosting,
-    "Gradient Boosting": gb,
-    "Stacking": stacking
-}
+# Initialize the selected classifiers
+selected_classifiers = [classifiers[name] for name in best_classifiers]
 
-# Evaluate ensemble methods
-for name, ensemble in ensembles.items():
-    ensemble.fit(X_train, y_train)
-    y_pred = ensemble.predict(X_test)
+# Apply Bagging
+print("\nApplying Bagging...")
+for clf in selected_classifiers:
+    bagging = BaggingClassifier(base_estimator=clf, n_estimators=10, random_state=42)
+    bagging.fit(X_train, y_train)
+    y_pred = bagging.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"{name} Ensemble - Accuracy: {accuracy:.4f}")
+    print(f"Bagging with {clf.__class__.__name__}: Accuracy = {accuracy:.4f}")
+
+# Apply Boosting (AdaBoost)
+print("\nApplying Boosting...")
+for clf in selected_classifiers:
+    boosting = AdaBoostClassifier(base_estimator=clf, n_estimators=10, random_state=42)
+    boosting.fit(X_train, y_train)
+    y_pred = boosting.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Boosting with {clf.__class__.__name__}: Accuracy = {accuracy:.4f}")
+
+# Apply Stacking
+print("\nApplying Stacking...")
+estimators = [(name, classifiers[name]) for name in best_classifiers]
+stacking = StackingClassifier(estimators=estimators, final_estimator=LogisticRegression())
+stacking.fit(X_train, y_train)
+y_pred = stacking.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Stacking: Accuracy = {accuracy:.4f}")
