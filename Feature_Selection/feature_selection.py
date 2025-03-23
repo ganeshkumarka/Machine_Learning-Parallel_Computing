@@ -1,65 +1,82 @@
-import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.feature_selection import SelectKBest, f_classif, RFE
-import numpy as np
-import requests
-import os
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
 from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import RFE
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
 # Load the Iris dataset
-data = load_iris()
-X, y = data.data, data.target
+iris = load_iris()
+X = pd.DataFrame(iris.data, columns=iris.feature_names)
+y = pd.Series(iris.target, name='target')
 
-# Split dataset
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Perform exploratory data analysis (EDA)
+print("Dataset Head:")
+print(X.head())
+print("\nDataset Description:")
+print(X.describe())
+print("\nClass Distribution:")
+print(y.value_counts())
 
-# Exploratory Data Analysis
-iris_df = pd.DataFrame(X, columns=data.feature_names)
-iris_df['species'] = y
-sns.pairplot(iris_df, hue='species', palette='tab10')
+# Visualize the dataset
+sns.pairplot(pd.concat([X, y], axis=1), hue='target')
 plt.show()
+
+# Split the dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
 # Univariate Feature Selection
 selector = SelectKBest(score_func=f_classif, k=2)
-X_new = selector.fit_transform(X_train, y_train)
-selected_features = selector.get_support(indices=True)
-print("Selected Features (Univariate):", np.array(data.feature_names)[selected_features])
+X_train_selected = selector.fit_transform(X_train, y_train)
+X_test_selected = selector.transform(X_test)
 
 # Feature Importance using Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_train, y_train)
-feature_importances = pd.Series(rf.feature_importances_, index=data.feature_names)
-print("Feature Importance:")
-print(feature_importances.sort_values(ascending=False))
+forest = RandomForestClassifier(random_state=42)
+forest.fit(X_train, y_train)
+importances = forest.feature_importances_
+indices = np.argsort(importances)[::-1]
 
-# Recursive Feature Elimination (RFE) using SVM
-svm = SVC(kernel='linear')
-rfe = RFE(svm, n_features_to_select=2)
+print("\nFeature Importances (Random Forest):")
+for f in range(X.shape[1]):
+    print(f"{X.columns[indices[f]]}: {importances[indices[f]]:.4f}")
+
+# Recursive Feature Elimination (RFE) using Support Vector Machine (SVM)
+svc = SVC(kernel="linear")
+rfe = RFE(estimator=svc, n_features_to_select=2, step=1)
 rfe.fit(X_train, y_train)
-selected_rfe_features = np.array(data.feature_names)[rfe.support_]
-print("Selected Features (RFE):", selected_rfe_features)
+X_train_rfe = rfe.transform(X_train)
+X_test_rfe = rfe.transform(X_test)
 
-# Evaluate performance before and after feature selection
-models = {'Full Features': X_train, 'Univariate Selection': X_new, 'RFE Selection': X_train[:, rfe.support_]}
-for name, X_subset in models.items():
-    X_train_sub, X_test_sub = X_subset, X_test[:, rfe.support_] if name != 'Full Features' else X_test
-    model = SVC(kernel='linear')
-    model.fit(X_train_sub, y_train)
-    y_pred = model.predict(X_test_sub)
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f"{name} Model Accuracy: {accuracy:.4f}")
+# Evaluate the performance of the selected features using a classification model
+# Using Logistic Regression for evaluation
+log_reg = LogisticRegression(max_iter=1000)
 
+# Without feature selection
+log_reg.fit(X_train, y_train)
+y_pred = log_reg.predict(X_test)
+accuracy_all_features = accuracy_score(y_test, y_pred)
+print(f"\nAccuracy with all features: {accuracy_all_features:.4f}")
 
-feature_importances.sort_values().plot(kind='barh', title='Feature Importance using Random Forest')
-plt.show()
+# With Univariate Feature Selection
+log_reg.fit(X_train_selected, y_train)
+y_pred = log_reg.predict(X_test_selected)
+accuracy_univariate = accuracy_score(y_test, y_pred)
+print(f"Accuracy with Univariate Feature Selection: {accuracy_univariate:.4f}")
+
+# With RFE
+log_reg.fit(X_train_rfe, y_train)
+y_pred = log_reg.predict(X_test_rfe)
+accuracy_rfe = accuracy_score(y_test, y_pred)
+print(f"Accuracy with RFE: {accuracy_rfe:.4f}")
+
+# Compare the model performance before and after feature selection
+print("\nModel Performance Comparison:")
+print(f"All Features: {accuracy_all_features:.4f}")
+print(f"Univariate Feature Selection: {accuracy_univariate:.4f}")
+print(f"RFE: {accuracy_rfe:.4f}")
