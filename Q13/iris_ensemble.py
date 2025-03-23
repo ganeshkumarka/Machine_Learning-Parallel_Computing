@@ -60,7 +60,7 @@ selected_classifiers = [classifiers[name] for name in best_classifiers]
 # Apply Bagging
 print("\nApplying Bagging...")
 for clf in selected_classifiers:
-    bagging = BaggingClassifier(base_estimator=clf, n_estimators=10, random_state=42)
+    bagging = BaggingClassifier(estimator=clf, n_estimators=10, random_state=42)
     bagging.fit(X_train, y_train)
     y_pred = bagging.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
@@ -69,7 +69,10 @@ for clf in selected_classifiers:
 # Apply Boosting (AdaBoost)
 print("\nApplying Boosting...")
 for clf in selected_classifiers:
-    boosting = AdaBoostClassifier(base_estimator=clf, n_estimators=10, random_state=42)
+    if isinstance(clf, KNeighborsClassifier):
+        print(f"Skipping Boosting for {clf.__class__.__name__} as it doesn't support sample_weight.")
+        continue
+    boosting = AdaBoostClassifier(estimator=clf, n_estimators=10, random_state=42)
     boosting.fit(X_train, y_train)
     y_pred = boosting.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
