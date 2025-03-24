@@ -2,26 +2,30 @@
 #include <vector>
 #include <cstdlib>
 #include <ctime>
-#include <thread> // Add this include
 #include <chrono>
+#include <thread>
+#include <atomic>
 
 using namespace std;
+using namespace chrono;
 
 // Function to generate a random integer array
 vector<int> generateArray(int n)
 {
     vector<int> arr(n);
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < n; i++)
     {
-        arr[i] = rand() % 1000;
+        arr[i] = i;
     }
     return arr;
 }
 
+// ** Sequential Functions **
+
 // Function to find the sum of elements in an array
-int findSum(const vector<int> &arr)
+long long findSumSequential(const vector<int> &arr)
 {
-    int sum = 0;
+    long long sum = 0;
     for (int num : arr)
     {
         sum += num;
@@ -29,76 +33,137 @@ int findSum(const vector<int> &arr)
     return sum;
 }
 
-// Function to search for a key element in an array
-bool searchKey(const vector<int> &arr, int key)
+// Function to search for a key in an array
+bool searchKeySequential(const vector<int> &arr, int key)
 {
     for (int num : arr)
     {
         if (num == key)
+        {
             return true;
+        }
     }
     return false;
 }
 
-// Thread function for finding sum in partitioned arrays
-void threadedSum(const vector<int> &arr, int start, int end, int &result)
+// ** Multi-threaded Functions **
+
+// Thread function to compute sum of a partition
+void sumPartition(const vector<int> &arr, int start, int end, long long &partialSum)
 {
-    result = 0;
-    for (int i = start; i < end; ++i)
+    partialSum = 0;
+    for (int i = start; i < end; i++)
     {
-        result += arr[i];
+        partialSum += arr[i];
     }
 }
 
-// Thread function for searching key in partitioned arrays
-void threadedSearch(const vector<int> &arr, int start, int end, int key, bool &found)
+// Thread function to search for a key in a partition
+void searchPartition(const vector<int> &arr, int start, int end, int key, atomic<bool> &found)
 {
-    found = false;
-    for (int i = start; i < end; ++i)
+    for (int i = start; i < end; i++)
     {
         if (arr[i] == key)
         {
             found = true;
-            break;
+            return;
         }
     }
 }
 
 int main()
 {
-    srand(time(0));
-    int n = 100000; // Array size
+    srand(time(0)); // Seed random number generator
+    int n = 0;
+    int key = 0;
+    cout << "ENTER THE SIZE OF ARRAY : ";
+    cin >> n;
+    cout << "ENTER THE KEY FOR SEARCH : ";
+    cin >> key;
+    int numThreads = 4; // Number of threads
+
+    // Generate array
     vector<int> arr = generateArray(n);
-    int key = arr[n / 2]; // Select a random key from the array
 
-    // Sequential Execution
-    auto start = chrono::high_resolution_clock::now();
-    int sum = findSum(arr);
-    bool found = searchKey(arr, key);
-    auto end = chrono::high_resolution_clock::now();
-    cout << "Sequential Sum: " << sum << " Execution Time: " << chrono::duration<double>(end - start).count() << "s\n";
-    cout << "Sequential Search Found: " << found << "\n";
+    // ** Sequential Execution **
+    cout << "\n--- Sequential Execution ---\n";
 
-    // Multithreading Execution
-    int mid = n / 2;
-    int sum1, sum2;
-    bool found1, found2;
-    thread t1(threadedSum, ref(arr), 0, mid, ref(sum1));
-    thread t2(threadedSum, ref(arr), mid, n, ref(sum2));
-    t1.join();
-    t2.join();
-    int totalSum = sum1 + sum2;
+    // Sum computation
+    auto start = high_resolution_clock::now();
+    long long sumSeq = findSumSequential(arr);
+    auto end = high_resolution_clock::now();
+    cout << "Sequential Sum: " << sumSeq << endl;
+    cout << "Time taken (Sequential Sum): " << duration_cast<milliseconds>(end - start).count() << " ms" << endl;
 
-    thread t3(threadedSearch, ref(arr), 0, mid, key, ref(found1));
-    thread t4(threadedSearch, ref(arr), mid, n, key, ref(found2));
-    t3.join();
-    t4.join();
-    bool keyFound = found1 || found2;
+    // Key search
+    start = high_resolution_clock::now();
+    bool foundSeq = searchKeySequential(arr, key);
+    end = high_resolution_clock::now();
+    cout << "Key " << key << (foundSeq ? " found" : " not found") << " in Sequential Search." << endl;
+    cout << "Time taken (Sequential Search): " << duration_cast<milliseconds>(end - start).count() << " ms" << endl;
 
-    cout << "Multithreading Sum: " << totalSum << "\n";
-    cout << "Multithreading Search Found: " << keyFound << "\n";
+    // ** Multi-threaded Execution **
+    cout << "\n--- Multi-threaded Execution ---\n";
+
+    // Multi-threaded sum computation
+    vector<thread> threads;
+    vector<long long> partialSums(numThreads, 0);
+    int chunkSize = n / numThreads;
+
+    start = high_resolution_clock::now();
+    for (int i = 0; i < numThreads; i++)
+    {
+        int startIdx = i * chunkSize;
+        int endIdx = (i == numThreads - 1) ? n : startIdx + chunkSize;
+        threads.push_back(thread(sumPartition, ref(arr), startIdx, endIdx, ref(partialSums[i])));
+    }
+
+    for (auto &t : threads)
+    {
+        t.join();
+    }
+
+    long long totalSum = 0;
+    for (long long partSum : partialSums)
+    {
+        totalSum += partSum;
+    }
+
+    end = high_resolution_clock::now();
+    cout << "Multi-threaded Sum: " << totalSum << endl;
+    cout << "Time taken (Multi-threaded Sum): " << duration_cast<milliseconds>(end - start).count() << " ms" << endl;
+
+    // Multi-threaded key search
+    vector<atomic<bool>> found(numThreads); // Use atomic<bool> to avoid bitwise issues with vector<bool>
+    threads.clear();
+    start = high_resolution_clock::now();
+
+    for (int i = 0; i < numThreads; i++)
+    {
+        int startIdx = i * chunkSize;
+        int endIdx = (i == numThreads - 1) ? n : startIdx + chunkSize;
+        threads.push_back(thread([&arr, startIdx, endIdx, key, &found, i]()
+                                 { searchPartition(arr, startIdx, endIdx, key, found[i]); }));
+    }
+
+    for (auto &t : threads)
+    {
+        t.join();
+    }
+
+    bool keyFound = false;
+    for (int i = 0; i < numThreads; i++)
+    {
+        if (found[i])
+        {
+            keyFound = true;
+            break;
+        }
+    }
+
+    end = high_resolution_clock::now();
+    cout << "Key " << key << (keyFound ? " found" : " not found") << " in Multi-threaded Search." << endl;
+    cout << "Time taken (Multi-threaded Search): " << duration_cast<milliseconds>(end - start).count() << " ms" << endl;
 
     return 0;
 }
-
-
